@@ -174,6 +174,7 @@ public class PropertyConfigHandler implements ExternalConfigHandler {
             .tags(valueProvider.getList(TAGS, config.getTags()))
             .maintainer(valueProvider.getString(MAINTAINER, config.getMaintainer()))
             .network(valueProvider.getString(BUILD_NETWORK, config.getNetwork()))
+            .target(valueProvider.getString(BUILD_TARGET, config.getTarget()))
             .workdir(valueProvider.getString(WORKDIR, config.getWorkdir()))
             .skip(valueProvider.getBoolean(SKIP_BUILD, config.getSkip()))
             .skipPush(valueProvider.getBoolean(SKIP_PUSH, config.getSkipPush()))
@@ -346,6 +347,7 @@ public class PropertyConfigHandler implements ExternalConfigHandler {
             .attestations(extractAttestations(config.getAttestations(), valueProvider))
             .cacheFrom(valueProvider.getString(BUILDX_CACHE_FROM, config.getCacheFrom()))
             .cacheTo(valueProvider.getString(BUILDX_CACHE_TO, config.getCacheTo()))
+            .buildAllPlatforms(valueProvider.getBoolean(BUILDX_BUILD_ALL_PLATFORMS, config.getBuildAllPlatforms()))
             .secret(extractSecret(config.getSecret(), valueProvider))
             .build();
     }

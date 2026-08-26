@@ -3,7 +3,6 @@ package io.fabric8.maven.docker.service;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -307,9 +306,6 @@ class BuildServiceTest {
     void testTagImage() throws DockerAccessException, MojoExecutionException {
         // Given
         givenAnImageConfiguration(Boolean.FALSE.toString());
-        final BuildService.BuildContext buildContext = new BuildService.BuildContext.Builder()
-            .mojoParameters(mojoParameters)
-            .build();
 
         // When
         whenBuildImage(false, true);
@@ -397,6 +393,54 @@ class BuildServiceTest {
         } finally {
             System.clearProperty("docker.buildArg.http_proxy");
         }
+    }
+
+    @Test
+    void testTargetIsPropagatedToBuildOptions() throws DockerAccessException, MojoExecutionException {
+        // Given
+        BuildImageConfiguration buildConfig = new BuildImageConfiguration.Builder()
+            .target("my-stage")
+            .build();
+
+        imageConfig = new ImageConfiguration.Builder()
+            .name("build-image")
+            .buildConfig(buildConfig)
+            .build();
+
+        BuildService.BuildContext buildContext = new BuildService.BuildContext.Builder()
+            .mojoParameters(mojoParameters)
+            .build();
+        File buildArchive = buildService.buildArchive(imageConfig, buildContext, "");
+
+        // When
+        buildService.buildImage(imageConfig, null, false, false, Collections.emptyMap(), buildArchive);
+
+        // Then
+        Mockito.verify(docker).buildImage(Mockito.any(), Mockito.any(),
+            Mockito.argThat((BuildOptions options) -> "my-stage".equals(options.getOptions().get("target"))));
+    }
+
+    @Test
+    void testTargetAbsentFromBuildOptionsWhenNotConfigured() throws DockerAccessException, MojoExecutionException {
+        // Given
+        BuildImageConfiguration buildConfig = new BuildImageConfiguration.Builder().build();
+
+        imageConfig = new ImageConfiguration.Builder()
+            .name("build-image")
+            .buildConfig(buildConfig)
+            .build();
+
+        BuildService.BuildContext buildContext = new BuildService.BuildContext.Builder()
+            .mojoParameters(mojoParameters)
+            .build();
+        File buildArchive = buildService.buildArchive(imageConfig, buildContext, "");
+
+        // When
+        buildService.buildImage(imageConfig, null, false, false, Collections.emptyMap(), buildArchive);
+
+        // Then
+        Mockito.verify(docker).buildImage(Mockito.any(), Mockito.any(),
+            Mockito.argThat((BuildOptions options) -> !options.getOptions().containsKey("target")));
     }
 
     private void givenAnImageConfiguration(String cleanup) {

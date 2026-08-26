@@ -10,7 +10,6 @@ import io.fabric8.maven.docker.access.DockerAccessException;
 import io.fabric8.maven.docker.access.ExecException;
 import io.fabric8.maven.docker.access.PortMapping;
 import io.fabric8.maven.docker.config.*;
-import io.fabric8.maven.docker.log.LogOutputSpec;
 import io.fabric8.maven.docker.log.LogOutputSpecFactory;
 import io.fabric8.maven.docker.model.Container;
 import io.fabric8.maven.docker.model.ExecDetails;
@@ -23,7 +22,6 @@ import org.apache.maven.execution.MavenSession;
 import org.apache.maven.project.MavenProject;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -259,6 +257,30 @@ class RunServiceTest {
 
         Assertions.assertEquals(createdVolumes.get(0), volumeConfigurations.get(0).getName());
         Assertions.assertTrue(createdVolumes.contains(volumeConfigurations.get(0).getName()));
+    }
+
+    @Test
+    void createContainerUsesNamesFromAllExistingContainers(@Mock Container existingContainer, @Mock PortMapping portMapping)
+        throws DockerAccessException {
+
+        Mockito.doReturn("reproduce-container-name-conflict-1").when(existingContainer).getName();
+        Mockito.doReturn(Collections.singletonList(existingContainer)).when(queryService).listContainers(true);
+        Mockito.doReturn("containerId")
+            .when(docker).createContainer(Mockito.any(ContainerCreateConfig.class), Mockito.anyString());
+
+        ImageConfiguration imageConfiguration = new ImageConfiguration.Builder()
+            .name("localhost/reproduce-container-name-conflict:latest")
+            .runConfig(new RunImageConfiguration())
+            .build();
+
+        String containerId = runService.createContainer(imageConfiguration, portMapping, null, properties,
+            getBaseDirectory(), "%n-%i", new Date());
+
+        Assertions.assertEquals("containerId", containerId);
+        Mockito.verify(docker).createContainer(Mockito.any(ContainerCreateConfig.class),
+            Mockito.eq("reproduce-container-name-conflict-2"));
+        Mockito.verify(queryService).listContainers(true);
+        Mockito.verify(queryService, Mockito.never()).getContainersForImage(Mockito.anyString(), Mockito.anyBoolean());
     }
 
     @Test

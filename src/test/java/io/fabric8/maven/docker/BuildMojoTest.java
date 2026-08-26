@@ -409,7 +409,7 @@ class BuildMojoTest extends MojoTestBase {
     private void thenAuthMatches(AuthConfig authConfig) throws MojoExecutionException {
         ArgumentCaptor<AuthConfigList> authConfigList = ArgumentCaptor.forClass(AuthConfigList.class);
         Mockito.verify(serviceHub.getBuildXService()).build(
-                Mockito.any(), Mockito.any(), Mockito.any(), authConfigList.capture(), Mockito.any());
+                Mockito.any(), Mockito.any(), Mockito.any(), authConfigList.capture(), Mockito.any(), Mockito.any());
 
         Assertions.assertEquals(authConfig.toJson(), authConfigList.getValue().toJson());
     }
@@ -417,7 +417,7 @@ class BuildMojoTest extends MojoTestBase {
     private void thenAuthContainsRegistry(String expectedRegistry) throws MojoExecutionException {
         ArgumentCaptor<AuthConfigList> authConfigList = ArgumentCaptor.forClass(AuthConfigList.class);
         Mockito.verify(serviceHub.getBuildXService()).build(
-                Mockito.any(), Mockito.any(), Mockito.any(), authConfigList.capture(), Mockito.any());
+                Mockito.any(), Mockito.any(), Mockito.any(), authConfigList.capture(), Mockito.any(), Mockito.any());
 
         Assertions.assertTrue(authConfigList.getValue().toJson().contains(expectedRegistry));
     }
@@ -513,13 +513,6 @@ class BuildMojoTest extends MojoTestBase {
         return new BuildXConfiguration.Builder()
             .nodeName("maven0")
             .platforms(Arrays.asList(platforms));
-    }
-
-    private BuildXConfiguration getBuildXConfiguration(String configFile, String... platforms) {
-        return new BuildXConfiguration.Builder()
-            .configFile(configFile)
-            .platforms(Arrays.asList(platforms))
-            .build();
     }
 
     private ImageConfiguration singleBuildXImageWithConfiguration(String configFile) {

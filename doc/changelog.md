@@ -1,5 +1,27 @@
-# ChangeLog
-* **0.49-SNAPSHOT**:
+* **0.50-SNAPSHOT**:
+  - Create the parent directory of `outputFile` and fail with an explicit message when it cannot be written, instead of swallowing the error and failing later with a `NullPointerException`; also make the progress bar usable without a preceding `progressStart()`
+
+* **0.49.0 (2026-08-09)**:
+  - Fix `docker.save.aliases`: a non-existent alias in the list was silently ignored instead of failing the save with a clear error
+  - Make container log streaming (`<wait><log>` and log following) resilient to transient stream disconnects by reconnecting and resuming instead of aborting, fixing flaky log-wait timeouts (e.g. `jnr ... Bad file descriptor` on macOS CI)
+  - Honour the `<follow>` configuration element (in addition to the `docker.follow` system property) for `docker:start`, `docker:run` and `docker:watch` ([#1797](https://github.com/fabric8io/docker-maven-plugin/issues/1797))
+  - Add opt-in `<buildAllPlatforms>` buildx option to build all platforms during docker:build, warming the builder cache so a later docker:push reuses it ([#1866](https://github.com/fabric8io/docker-maven-plugin/issues/1866))
+  - Normalize empty `<args>` build argument values (e.g. from a property that resolves to an empty value) to an empty string instead of failing the build ([#1858](https://github.com/fabric8io/docker-maven-plugin/issues/1858))
+  - Fall back to the current timestamp instead of crashing the log-follow thread when a container log line has an unparseable timestamp (e.g. `Error` written on stderr) ([#1428](https://github.com/fabric8io/docker-maven-plugin/issues/1428))
+  - Pass externally-resolved build args (`docker.buildArg.*` system/Maven properties and other `BuildArgResolver` sources) to buildx `build` and `push`, so buildx honours them like the classic build path instead of only `<build><args>` ([#1901](https://github.com/fabric8io/docker-maven-plugin/issues/1901))
+  - Add a `wslc://` Docker transport so images can be built against a WSL Containers daemon, which exposes no Windows named pipe or TCP port and is reachable only via a stdio bridge, including auto-detection below the Docker/Podman named pipe ([#1928](https://github.com/fabric8io/docker-maven-plugin/issues/1928))
+  - Add support for the `--target` parameter in the build phase, for both classic and buildx builds ([#1908](https://github.com/fabric8io/docker-maven-plugin/pull/1908))
+  - Add `docker.ecr.endpoint` system property so ECR authentication can be pointed at a VPC endpoint instead of the default `api.ecr.<region>.amazonaws.com` host ([#1872](https://github.com/fabric8io/docker-maven-plugin/issues/1872))
+  - Keep the default value for a repeated build argument in multistage builds ([#1910](https://github.com/fabric8io/docker-maven-plugin/pull/1910))
+  - Only apply a Docker Compose wait config to a service when its alias matches the image configuration alias ([#1902](https://github.com/fabric8io/docker-maven-plugin/pull/1902))
+  - Avoid container name conflicts after an image is rebuilt ([#1958](https://github.com/fabric8io/docker-maven-plugin/pull/1958))
+  - Harden ECR authentication: validate the decoded credential split instead of throwing `ArrayIndexOutOfBoundsException` on input without a colon, and replace the shared `SimpleDateFormat` with a thread-safe `DateTimeFormatter`
+  - Use an ephemeral random password for the in-memory Docker TLS `KeyStore` instead of a hard-coded one
+  - Various Sonar-flagged reliability fixes in the socket, log-streaming and file-handling paths, including closing sockets and readers via try-with-resources and re-interrupting the current thread when catching `InterruptedException`
+  - Bump Jnr JFFI to v1.3.15
+
+* **0.48.1 (2026-02-07)**:
+  - Use wait config if no Docker Compose healthcheck ([1771](https://github.com/fabric8io/docker-maven-plugin/issues/1771))
 
 * **0.48.0 (2025-11-17)**:
   - Allow saving multiple images in docker:save using new parameters saveNames and saveAliases.

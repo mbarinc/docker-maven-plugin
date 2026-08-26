@@ -18,6 +18,7 @@ package io.fabric8.maven.docker;
 
 import java.io.UnsupportedEncodingException;
 import java.net.*;
+import java.util.Arrays;
 import java.util.HashMap;
 
 import io.fabric8.maven.docker.access.BuildOptions;
@@ -72,7 +73,8 @@ class UrlBuilderTest {
         UrlBuilder builder = new UrlBuilder("", "1.0");
         Assertions.assertEquals(new URI("/1.0/containers/cid/logs?follow=0&stderr=1&stdout=1&timestamps=1"),
             new URI(builder.containerLogs("cid", false)));
-
+        Assertions.assertEquals(new URI("/1.0/containers/cid/logs?follow=1&since=1620000000.500000000&stderr=1&stdout=1&timestamps=1"),
+            new URI(builder.containerLogs("cid", true, "1620000000.500000000")));
     }
 
     @Test
@@ -86,6 +88,13 @@ class UrlBuilderTest {
     void getImage() throws URISyntaxException {
         UrlBuilder builder = new UrlBuilder("", "1.0");
         Assertions.assertEquals(new URI("/1.0/images/n1%3Alatest/get"), new URI(builder.getImage(new ImageName("n1:latest"))));
+    }
+
+    @Test
+    void getImages() {
+        UrlBuilder builder = new UrlBuilder("", "1.0");
+        Assertions.assertEquals("/1.0/images/get?names=n1%3Alatest&names=n2%3Alatest",
+            builder.getImages(Arrays.asList(new ImageName("n1:latest"), new ImageName("n2:latest"))));
     }
 
     @Test

@@ -10,12 +10,12 @@
   <parent>
     <groupId>io.fabric8.dmp.itests</groupId>
     <artifactId>dmp-it-parent</artifactId>
-    <version>0.49-SNAPSHOT</version>
+    <version>0.50-SNAPSHOT</version>
     <relativePath>../pom.xml</relativePath>
   </parent>
 
   <artifactId>dmp-it-properties</artifactId>
-  <version>0.49-SNAPSHOT</version>
+  <version>0.50-SNAPSHOT</version>
   <packaging>docker-build</packaging>
 
   <properties>
@@ -26,7 +26,7 @@
     <postgres.docker.name>postgres:16.3-alpine</postgres.docker.name>
     <postgres.docker.ports.1>${itest.postgres.port}:5432</postgres.docker.ports.1>
     <postgres.docker.wait.log>PostgreSQL init process complete</postgres.docker.wait.log>
-    <postgres.docker.wait.time>10000</postgres.docker.wait.time>
+    <postgres.docker.wait.time>60000</postgres.docker.wait.time>
   </properties>
 
   <build>

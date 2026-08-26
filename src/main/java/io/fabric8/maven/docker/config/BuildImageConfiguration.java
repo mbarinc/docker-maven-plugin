@@ -7,6 +7,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -198,6 +199,13 @@ public class BuildImageConfiguration implements Serializable {
 
     @Parameter
     private Map<String,String> buildOptions;
+
+    /**
+     * Target build stage in a multi-stage Dockerfile.
+     * Passed as {@code --target} to {@code docker build} and {@code docker buildx build}.
+     */
+    @Parameter
+    private String target;
 
     //Default file exclusions
     @Parameter
@@ -454,6 +462,10 @@ public class BuildImageConfiguration implements Serializable {
 
     public Map<String, String> getBuildOptions() {
         return buildOptions;
+    }
+
+    public String getTarget() {
+        return target;
     }
 
     public Map<String, String> getCreateImageOptions() {
@@ -750,6 +762,11 @@ public class BuildImageConfiguration implements Serializable {
             return this;
         }
 
+        public Builder target(String target) {
+            config.target = target;
+            return this;
+        }
+
         public Builder createImageOptions(Map<String, String> createImageOptions) {
             config.createImageOptions = createImageOptions;
             return this;
@@ -776,6 +793,8 @@ public class BuildImageConfiguration implements Serializable {
         if (healthCheck != null) {
             healthCheck.validate();
         }
+
+        normalizeBuildArgs();
 
         ensureUniqueAssemblyNames(log);
 
@@ -820,6 +839,21 @@ public class BuildImageConfiguration implements Serializable {
                 throw new IllegalArgumentException("Assembly names must be unique");
             }
         }
+    }
+
+    /**
+     * Build args coming from a Maven property that resolves to an empty or undefined value are injected
+     * as {@code null} (e.g. {@code <FOO>${someEmptyProperty}</FOO>}). Docker treats a build arg without a
+     * value as an empty string, so normalize {@code null} values to {@code ""} instead of letting the build
+     * fail later when the args are collected into a map that rejects null values. See #1858.
+     */
+    private void normalizeBuildArgs() {
+        if (args == null || !args.containsValue(null)) {
+            return;
+        }
+        Map<String, String> normalizedArgs = new LinkedHashMap<>();
+        args.forEach((key, value) -> normalizedArgs.put(key, value == null ? "" : value));
+        args = normalizedArgs;
     }
 
     // Initialize the dockerfile location and the build mode

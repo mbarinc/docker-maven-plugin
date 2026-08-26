@@ -243,6 +243,25 @@ class DockerAssemblyManagerTest {
         verifyArchiveManager();
     }
 
+    @Test
+    void archiveCreationPropagatesRuntimeException() throws IOException, NoSuchArchiverException {
+        MojoParameters mojoParams = mockMojoParams(mockMavenProject());
+        BuildImageConfiguration buildImageConfiguration = new BuildImageConfiguration.Builder()
+            .dockerFile(DockerAssemblyManagerTest.class.getResource("/docker/Dockerfile.test").getPath())
+            .build();
+        buildImageConfiguration.initAndValidate(logger);
+        RuntimeException failure = new IllegalStateException("Archive creation failed");
+
+        Mockito.doReturn(tarArchiver).when(archiverManager).getArchiver("tar");
+        Mockito.doThrow(failure).when(tarArchiver).createArchive();
+
+        RuntimeException thrown = Assertions.assertThrows(RuntimeException.class,
+            () -> assemblyManager.createDockerTarArchive(
+                "test_image", mojoParams, buildImageConfiguration, logger, null));
+
+        Assertions.assertSame(failure, thrown);
+    }
+
     private void verifyArchiveManager() {
         List<FileSet> fileSets = getFileSetsToVerify(2);
         Assertions.assertEquals("build", fileSets.get(0).getDirectory().getName());
@@ -375,12 +394,6 @@ class DockerAssemblyManagerTest {
         File tarArchive = assemblyManager.createDockerTarArchive("test_image", mojoParams, buildImageConfiguration, logger, null);
         Assertions.assertNotNull(tarArchive);
 
-        /*
-            tarArchiver.addFile(new File("target/test_image/build/Dockerfile").getAbsoluteFile(), "Dockerfile");
-
-            List<ArchivedFileSet> archivedFileSets = new ArrayList<>();
-            tarArchiver.addArchivedFileSet(withCapture(archivedFileSets));
-         */
         List<ArchivedFileSet> archivedFileSets = getArchivedFileSetsToVerify( "target/test_image/build/Dockerfile", "Dockerfile", 2);
         Assertions.assertEquals(new File("target/test_image/build/first.tar").getAbsoluteFile(), archivedFileSets.get(0).getArchive());
         Assertions.assertEquals("first/", archivedFileSets.get(0).getPrefix());

@@ -256,11 +256,109 @@ class LogRequestorTest {
     }
 
     @Test
+    void testUnparseableTimestampFallsBackAndDoesNotKillStream() throws Exception {
+        final Streams type = Streams.STDERR;
+        final String entry = "the build failed";
+        // Docker can emit a line whose timestamp position is not an ISO-8601 value (e.g. "Error" on stderr).
+        // frameToBuffer injects the line verbatim, so the LOG_LINE timestamp group ("Error") cannot be parsed.
+        final ByteBuffer buf = frameToBuffer(type, "Error " + entry);
+        final InputStream inputStream = new ByteArrayInputStream(buf.array());
+        setupMocks(inputStream);
+
+        final LogRequestor logRequestor = new LogRequestor(client, urlBuilder, containerId, callback);
+
+        // The unparseable timestamp must not kill the log-follow thread (#1428): run() completes normally and
+        // the line is still delivered, with the current timestamp substituted for the one that failed to parse.
+        Assertions.assertDoesNotThrow(logRequestor::run);
+
+        Mockito.verify(callback).log(Mockito.eq(type.type), Mockito.any(ZonedDateTime.class), Mockito.eq(entry));
+        Mockito.verify(callback, Mockito.never()).error(Mockito.anyString());
+    }
+
+    @Test
     void runCanHandleIOException() throws Exception {
         final IOExceptionStream stream = new IOExceptionStream();
         setupMocks(stream);
 
-        new LogRequestor(client, urlBuilder, containerId, callback).run();
+        // reconnectPolicy(0, ...) => give up immediately (keeps the test fast and asserts a single error).
+        new LogRequestor(client, urlBuilder, containerId, callback).reconnectPolicy(0, 0).run();
+        Mockito.verify(callback).error(Mockito.anyString());
+    }
+
+    @Test
+    void runReconnectsAfterTransientIOException() throws Exception {
+        final Streams type = Streams.STDOUT;
+        final String message = "Hello, world!";
+        final InputStream inputStream = new ByteArrayInputStream(messageToBuffer(type, message).array());
+
+        // First connection attempt fails with a transient IO error; the reconnect then succeeds.
+        Mockito.doThrow(new IOException("Bad file descriptor"))
+               .doReturn(httpResponse)
+               .when(client).execute(Mockito.any(HttpUriRequest.class));
+        Mockito.doReturn(statusLine).when(httpResponse).getStatusLine();
+        Mockito.doReturn(200).when(statusLine).getStatusCode();
+        Mockito.doReturn(httpEntity).when(httpResponse).getEntity();
+        Mockito.doReturn(inputStream).when(httpEntity).getContent();
+        Mockito.doReturn("url").when(urlBuilder).containerLogs(Mockito.anyString(), Mockito.anyBoolean(), Mockito.any());
+
+        new LogRequestor(client, urlBuilder, containerId, callback).reconnectPolicy(3, 0).run();
+
+        Mockito.verify(callback).log(Mockito.eq(type.type), Mockito.any(ZonedDateTime.class), Mockito.eq(message));
+        Mockito.verify(callback, Mockito.never()).error(Mockito.anyString());
+        Mockito.verify(client, Mockito.times(2)).execute(Mockito.any(HttpUriRequest.class));
+    }
+
+    @Test
+    void runGivesUpAfterMaxReconnectAttempts() throws Exception {
+        Mockito.doThrow(new IOException("Bad file descriptor"))
+               .when(client).execute(Mockito.any(HttpUriRequest.class));
+        Mockito.doReturn("url").when(urlBuilder).containerLogs(Mockito.anyString(), Mockito.anyBoolean(), Mockito.any());
+
+        new LogRequestor(client, urlBuilder, containerId, callback).reconnectPolicy(3, 0).run();
+
+        // Initial attempt + 3 reconnect attempts, then a single error is reported.
+        Mockito.verify(client, Mockito.times(4)).execute(Mockito.any(HttpUriRequest.class));
+        Mockito.verify(callback).error(Mockito.anyString());
+    }
+
+    @Test
+    void reconnectRequestResumesWithSince() throws Exception {
+        final Streams type = Streams.STDOUT;
+        final InputStream frameThenThrow = new FrameThenIOExceptionStream(messageToBuffer(type, "before disconnect").array());
+        final InputStream empty = new ByteArrayInputStream(new byte[0]);
+
+        Mockito.doReturn(httpResponse).when(client).execute(Mockito.any(HttpUriRequest.class));
+        Mockito.doReturn(statusLine).when(httpResponse).getStatusLine();
+        Mockito.doReturn(200).when(statusLine).getStatusCode();
+        Mockito.doReturn(httpEntity).when(httpResponse).getEntity();
+        Mockito.doReturn(frameThenThrow, empty).when(httpEntity).getContent();
+        Mockito.doReturn("url").when(urlBuilder).containerLogs(Mockito.anyString(), Mockito.anyBoolean(), Mockito.any());
+
+        new LogRequestor(client, urlBuilder, containerId, callback).reconnectPolicy(3, 0).run();
+
+        // First attempt streams from the beginning (since == null); after receiving a line it reconnects with a since timestamp.
+        Mockito.verify(urlBuilder).containerLogs(Mockito.eq(containerId), Mockito.eq(true), Mockito.isNull());
+        Mockito.verify(urlBuilder).containerLogs(Mockito.eq(containerId), Mockito.eq(true), Mockito.isNotNull());
+    }
+
+    @Test
+    void runGivesUpWhenReconnectsOnlyReplaySeenLines() throws Exception {
+        final Streams type = Streams.STDOUT;
+        // Every connection re-delivers the very same (already-seen) log line and then drops. Because the
+        // stream never advances past the last received line, delivering a line must NOT refill the reconnect
+        // budget, or a permanently broken socket would reconnect forever. The requestor has to give up.
+        Mockito.doReturn(httpResponse).when(client).execute(Mockito.any(HttpUriRequest.class));
+        Mockito.doReturn(statusLine).when(httpResponse).getStatusLine();
+        Mockito.doReturn(200).when(statusLine).getStatusCode();
+        Mockito.doReturn(httpEntity).when(httpResponse).getEntity();
+        Mockito.doAnswer(invocation -> new FrameThenIOExceptionStream(messageToBuffer(type, "same line").array()))
+               .when(httpEntity).getContent();
+        Mockito.doReturn("url").when(urlBuilder).containerLogs(Mockito.anyString(), Mockito.anyBoolean(), Mockito.any());
+
+        new LogRequestor(client, urlBuilder, containerId, callback).reconnectPolicy(3, 0).run();
+
+        // Initial attempt + exactly 3 reconnects, then give up — bounded, not an unbounded loop.
+        Mockito.verify(client, Mockito.times(4)).execute(Mockito.any(HttpUriRequest.class));
         Mockito.verify(callback).error(Mockito.anyString());
     }
 
@@ -271,7 +369,7 @@ class LogRequestorTest {
         Mockito.doReturn(httpEntity).when(httpResponse).getEntity();
         Mockito.doReturn(inputStream).when(httpEntity).getContent();
 
-        Mockito.doReturn("url").when(urlBuilder).containerLogs(Mockito.anyString(), Mockito.anyBoolean());
+        Mockito.doReturn("url").when(urlBuilder).containerLogs(Mockito.anyString(), Mockito.anyBoolean(), Mockito.any());
     }
 
     private enum Streams {
@@ -318,10 +416,16 @@ class LogRequestorTest {
      * Create a bytebuffer for a single string message. A timestamp will be added.
      */
     private static ByteBuffer messageToBuffer(Streams stream, String message) throws IOException {
-        String logMessage = logMessage(message);
+        return frameToBuffer(stream, logMessage(message));
+    }
 
+    /**
+     * Frame an already-complete log line (timestamp prefix included) into a docker stream frame,
+     * without prepending a timestamp. Used to inject a line whose timestamp cannot be parsed.
+     */
+    private static ByteBuffer frameToBuffer(Streams stream, String logLine) throws IOException {
         CharsetEncoder encoder = StandardCharsets.UTF_8.newEncoder();
-        ByteBuffer payload = encoder.encode(CharBuffer.wrap(logMessage.toCharArray()));
+        ByteBuffer payload = encoder.encode(CharBuffer.wrap(logLine.toCharArray()));
         assert payload.order() == ByteOrder.BIG_ENDIAN;
         int length = payload.limit();
 
@@ -346,6 +450,26 @@ class LogRequestorTest {
     private class IOExceptionStream extends InputStream {
         public int read() throws IOException {
             throw new IOException("Something bad happened");
+        }
+    }
+
+    /**
+     * Delivers the given bytes (one complete log frame) and then throws an IOException on the next read,
+     * simulating a mid-stream socket disconnect after some log output was already consumed.
+     */
+    private class FrameThenIOExceptionStream extends InputStream {
+        private final ByteArrayInputStream delegate;
+
+        FrameThenIOExceptionStream(byte[] frame) {
+            this.delegate = new ByteArrayInputStream(frame);
+        }
+
+        public int read() throws IOException {
+            int b = delegate.read();
+            if (b == -1) {
+                throw new IOException("Bad file descriptor");
+            }
+            return b;
         }
     }
 }

@@ -24,17 +24,9 @@ import java.util.Map;
  */
 @ExtendWith(MockitoExtension.class)
 class VolumeServiceTest {
-   private VolumeCreateConfig volumeConfig;
 
    @Mock
    private DockerAccess docker;
-
-   /*
-    * methods to test
-    *
-    * volumeService.createVolumeConfig(volumeName, driver, driverOpts, labels);
-    * volumeService.removeVolume(volumeName);
-    */
 
    private Map<String, String > withMap(String what) {
       Map<String, String> map = new HashMap<>();

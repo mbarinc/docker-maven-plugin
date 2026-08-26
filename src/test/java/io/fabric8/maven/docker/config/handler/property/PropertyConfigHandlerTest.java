@@ -29,7 +29,6 @@ import io.fabric8.maven.docker.config.RunImageConfiguration;
 import io.fabric8.maven.docker.config.UlimitConfig;
 import io.fabric8.maven.docker.config.WaitConfiguration;
 import io.fabric8.maven.docker.config.handler.AbstractConfigHandlerTest;
-import io.fabric8.maven.docker.util.Logger;
 
 import org.apache.maven.plugins.assembly.model.Assembly;
 import org.apache.maven.plugins.assembly.model.DependencySet;
@@ -1003,9 +1002,6 @@ class PropertyConfigHandlerTest extends AbstractConfigHandlerTest {
     }
 
     private List<ImageConfiguration> resolveImage(ImageConfiguration image, final Properties properties) {
-        //MavenProject project = mock(MavenProject.class);
-        //when(project.getProperties()).thenReturn(properties);
-
         Mockito.doReturn(properties).when(project).getProperties();
         Mockito.lenient().doReturn(new File("./")).when(project).getBasedir();
 

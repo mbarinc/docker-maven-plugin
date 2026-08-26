@@ -23,15 +23,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Cache .m2 registry
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.m2/repository
           key: cache-e2e-${{ github.sha }}-${{ github.run_id }}
       - name: Setup Java
-        uses: actions/setup-java@v1
+        uses: actions/setup-java@v5
         with:
+          distribution: 'temurin'
           java-version: '11'
       - name: Install DMP
         run: mvn ${MAVEN_ARGS} clean install -DskipTests -Djacoco.skip=true
@@ -46,18 +47,19 @@ jobs:
         docker: [v27.1.1, v26.1.4, v25.0.2, v24.0.9, v23.0.6, v20.10.24]
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v7
       - name: Setup Java
-        uses: actions/setup-java@v1
+        uses: actions/setup-java@v5
         with:
+          distribution: 'temurin'
           java-version: '11'
       - name: Cache .m2 registry
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.m2/repository
           key: cache-e2e-${{ github.sha }}-${{ github.run_id }}
       - name: Set up Docker
-        uses: crazy-max/ghaction-setup-docker@v4
+        uses: docker/setup-docker-action@v5
         with:
           version: ${{ matrix.docker }}
       - name: Run Integration tests
@@ -70,37 +72,69 @@ jobs:
   macos-build:
     name: MacOS
     needs: buildWithoutTests
-    runs-on: macos-13
+    # Using an Intel runner because ARM64 macOS runners don't support nested virtualization
+    # required for Docker/QEMU. See: https://github.com/actions/runner-images/issues/9460
+    runs-on: macos-26-intel
+    # Docker lives in a Lima VM here, so every step that talks to it has to be pointed at that
+    # VM's socket. Set once for the whole job, so the value cannot drift apart between steps.
+    env:
+      DOCKER_HOST: unix:///Users/runner/.lima/docker-actions-toolkit/docker.sock
     strategy:
       fail-fast: false
       matrix:
         docker: [v27.5.1, v26.1.4]
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v7
       - name: Setup Java
-        uses: actions/setup-java@v1
+        uses: actions/setup-java@v5
         with:
+          distribution: 'temurin'
           java-version: '11'
       - name: Cache .m2 registry
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.m2/repository
           key: cache-e2e-${{ github.sha }}-${{ github.run_id }}
-      - # https://github.com/crazy-max/ghaction-setup-docker/issues/108
-        name: Install QEMU 9.0.2
-        uses: docker/actions-toolkit/.github/actions/macos-setup-qemu@19ca9ade20f5da695f76a10988d6532058575f82
       - name: Set up Docker
-        uses: crazy-max/ghaction-setup-docker@v4
+        uses: docker/setup-docker-action@v5
         with:
           version: ${{ matrix.docker }}
-      - name: Set up Docker Buildx
+      - name: Set up Docker Buildx for Docker 27
+        if: matrix.docker == 'v27.5.1'
+        uses: docker/setup-buildx-action@v4
+        with:
+          version: v0.20.0
+      - name: Set up latest Docker Buildx
+        if: matrix.docker != 'v27.5.1'
         run: |
           brew install docker-buildx
           mkdir -p ~/.docker/cli-plugins
           ln -sfn /usr/local/opt/docker-buildx/bin/docker-buildx ~/.docker/cli-plugins/docker-buildx
+      # Name resolution inside that VM is flaky enough that a single failed lookup of
+      # registry-1.docker.io takes down a whole reactor run - the pull during the build has no retry
+      # of its own. Pulling the base images up front costs no extra time, they are needed anyway, but
+      # it puts the pull somewhere a retry can be wrapped around it.
+      - name: Pre-pull the base images used by the integration tests
+        run: |
+          images="alpine busybox jetty debian:bullseye-slim
+                  eclipse-temurin:17-jre-alpine eclipse-temurin:21-jre-alpine
+                  azul/zulu-openjdk-alpine:11 azul/zulu-openjdk-alpine:17-jre
+                  registry.access.redhat.com/ubi8/ubi-minimal:8.6"
+          for image in $images; do
+            for attempt in 1 2 3 4 5; do
+              if docker pull --quiet "$image"; then
+                break
+              fi
+              if [ "$attempt" -eq 5 ]; then
+                echo "::error::Could not pull $image after 5 attempts"
+                exit 1
+              fi
+              echo "Pulling $image failed, retrying in $((attempt * 10))s"
+              sleep $((attempt * 10))
+            done
+          done
       - name: Run Integration tests
         run: |
-          export DOCKER_HOST=unix:///Users/runner/.lima/docker-actions-toolkit/docker.sock
           cd it/
           mvn clean install

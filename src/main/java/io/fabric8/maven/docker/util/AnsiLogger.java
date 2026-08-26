@@ -51,8 +51,8 @@ public class AnsiLogger implements Logger, Closeable {
 
 
     // Map remembering lines
-    private ThreadLocal<Map<String, Integer>> imageLines = new ThreadLocal<>();
-    private ThreadLocal<AtomicInteger> updateCount = new ThreadLocal<>();
+    private ThreadLocal<Map<String, Integer>> imageLines = ThreadLocal.withInitial(HashMap::new);
+    private ThreadLocal<AtomicInteger> updateCount = ThreadLocal.withInitial(AtomicInteger::new);
 
     // Whether to use ANSI codes
     private boolean useAnsi;
@@ -70,22 +70,24 @@ public class AnsiLogger implements Logger, Closeable {
         this(log, useColor, verbose, batchMode, prefix, null);
     }
 
-    public AnsiLogger(Log log, boolean useColor, String verbose, boolean batchMode, String prefix, File outpufFile) {
+    /**
+     * @param outputFile file to write the log to instead of the console, or <code>null</code> for the console
+     * @throws UncheckedIOException if the output file cannot be opened for writing
+     */
+    public AnsiLogger(Log log, boolean useColor, String verbose, boolean batchMode, String prefix, File outputFile) {
         this.log = log;
         this.prefix = prefix;
-        this.outputFile = outpufFile;
+        this.outputFile = outputFile;
         if (this.outputFile == null) {
             this.batchMode = batchMode;
         } else {
             this.batchMode = true;
         }
         checkVerboseLoggingEnabled(verbose);
+        // Open the output file before initializeColor() touches the global Ansi state: if opening fails,
+        // the caller aborts and would otherwise leave that state switched for the rest of the build.
+        initializePrintWriter();
         initializeColor(useColor);
-        try {
-            initializePrintWriter();
-        } catch (FileNotFoundException e) {
-            e.printStackTrace();
-        }
     }
 
     /** {@inheritDoc} */
@@ -230,6 +232,7 @@ public class AnsiLogger implements Logger, Closeable {
     public void progressFinished() {
         if (!batchMode && log.isInfoEnabled()) {
             imageLines.remove();
+            updateCount.remove();
             print(ansi().reset().toString());
             if (!useAnsi) {
                 println("");
@@ -246,9 +249,18 @@ public class AnsiLogger implements Logger, Closeable {
         Ansi.setEnabled(useAnsi);
     }
 
-    private void initializePrintWriter() throws FileNotFoundException {
-        if (outputFile != null) {
+    private void initializePrintWriter() {
+        if (outputFile == null) {
+            return;
+        }
+        File parent = outputFile.getParentFile();
+        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+            throw new UncheckedIOException(new IOException("Cannot create directory " + parent));
+        }
+        try {
             this.pw = new PrintWriter(outputFile);
+        } catch (FileNotFoundException e) {
+            throw new UncheckedIOException(e);
         }
     }
 
@@ -360,16 +372,6 @@ public class AnsiLogger implements Logger, Closeable {
         this.isVerbose = true;
     }
 
-    private Boolean checkBackwardVersionValues(String verbose) {
-        if (verbose.isEmpty()) {
-            return Boolean.TRUE;
-        }
-        if (verbose.equalsIgnoreCase("true") || verbose.equalsIgnoreCase("false")) {
-            return Boolean.parseBoolean(verbose.toLowerCase());
-        }
-        return null;
-    }
-
     private List<LogVerboseCategory> getVerboseModesFromString(String groups) {
         List<LogVerboseCategory> ret = new ArrayList<>();
         for (String group : groups.split(",")) {
@@ -383,7 +385,7 @@ public class AnsiLogger implements Logger, Closeable {
     }
 
     private void logOrPrintToFile(Predicate<Log> logPredicate, Consumer<Log> logConsumer, String message, Object ... params) {
-        if (outputFile != null && logPredicate.test(log)) {
+        if (pw != null && logPredicate.test(log)) {
             pw.println(format(message, params));
         } else {
             logConsumer.accept(log);
